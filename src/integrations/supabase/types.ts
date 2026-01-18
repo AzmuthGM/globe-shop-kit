@@ -749,6 +749,10 @@ export type Database = {
         Returns: boolean
       }
       is_admin_or_editor: { Args: { _user_id: string }; Returns: boolean }
+      validate_coupon: {
+        Args: { p_cart_total: number; p_code: string }
+        Returns: Json
+      }
     }
     Enums: {
       app_role: "admin" | "editor"
