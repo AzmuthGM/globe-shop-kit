@@ -1,22 +1,40 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Minus, Plus, X, ShoppingBag, ArrowRight } from 'lucide-react';
+import { Minus, Plus, X, ShoppingBag, ArrowRight, Check, Loader2 } from 'lucide-react';
 import Layout from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCart } from '@/contexts/CartContext';
 import { useCurrency } from '@/contexts/CurrencyContext';
+import { useCoupon } from '@/hooks/useCoupon';
 import { convertPrice, formatPrice } from '@/data/products';
 import { cn } from '@/lib/utils';
 
 const Cart: React.FC = () => {
   const { items, updateQuantity, removeFromCart, subtotal, clearCart } = useCart();
   const { currency } = useCurrency();
+  const {
+    couponCode,
+    setCouponCode,
+    appliedCoupon,
+    isValidating,
+    error: couponError,
+    applyCoupon,
+    removeCoupon,
+  } = useCoupon();
 
   const shippingThreshold = 75;
   const currentSubtotal = convertPrice(subtotal, currency);
   const freeShippingProgress = Math.min((currentSubtotal / shippingThreshold) * 100, 100);
   const remainingForFreeShipping = Math.max(shippingThreshold - currentSubtotal, 0);
+
+  // Calculate discount amount based on applied coupon
+  const discountAmount = appliedCoupon?.discountAmount || 0;
+  const totalAfterDiscount = Math.max(currentSubtotal - discountAmount, 0);
+
+  const handleApplyCoupon = () => {
+    applyCoupon(currentSubtotal);
+  };
 
   if (items.length === 0) {
     return (
@@ -156,6 +174,17 @@ const Cart: React.FC = () => {
                   <span className="text-muted-foreground">Subtotal</span>
                   <span>{formatPrice(currentSubtotal, currency)}</span>
                 </div>
+                {appliedCoupon && discountAmount > 0 && (
+                  <div className="flex justify-between text-success">
+                    <span className="flex items-center gap-1">
+                      <Check className="h-3 w-3" />
+                      Discount ({appliedCoupon.discountType === 'percentage' 
+                        ? `${appliedCoupon.discountValue}%` 
+                        : formatPrice(appliedCoupon.discountValue || 0, currency)})
+                    </span>
+                    <span>-{formatPrice(discountAmount, currency)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Shipping</span>
                   <span className={remainingForFreeShipping <= 0 ? "text-success" : ""}>
@@ -168,19 +197,64 @@ const Cart: React.FC = () => {
                 </div>
               </div>
 
-              {/* Coupon */}
+              {/* Coupon - Secure server-side validation only */}
               <div className="mt-6 pt-4 border-t border-border">
                 <label className="text-sm font-medium mb-2 block">Discount Code</label>
-                <div className="flex gap-2">
-                  <Input placeholder="Enter code" className="flex-1" />
-                  <Button variant="outline">Apply</Button>
-                </div>
+                {appliedCoupon ? (
+                  <div className="flex items-center justify-between p-3 bg-success/10 border border-success/20 rounded-lg">
+                    <div className="flex items-center gap-2 text-success">
+                      <Check className="h-4 w-4" />
+                      <span className="font-medium">{couponCode}</span>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={removeCoupon}
+                      className="text-muted-foreground hover:text-destructive h-auto p-1"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <Input 
+                        placeholder="Enter code" 
+                        className="flex-1"
+                        value={couponCode}
+                        onChange={(e) => setCouponCode(e.target.value)}
+                        maxLength={50}
+                        disabled={isValidating}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleApplyCoupon();
+                          }
+                        }}
+                      />
+                      <Button 
+                        variant="outline" 
+                        onClick={handleApplyCoupon}
+                        disabled={isValidating || !couponCode.trim()}
+                      >
+                        {isValidating ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          'Apply'
+                        )}
+                      </Button>
+                    </div>
+                    {couponError && (
+                      <p className="text-xs text-destructive">{couponError}</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="mt-6 pt-4 border-t border-border">
                 <div className="flex justify-between text-lg font-semibold mb-4">
                   <span>Total</span>
-                  <span>{formatPrice(currentSubtotal, currency)}</span>
+                  <span>{formatPrice(totalAfterDiscount, currency)}</span>
                 </div>
 
                 <Button asChild className="w-full btn-premium text-primary-foreground" size="lg">
