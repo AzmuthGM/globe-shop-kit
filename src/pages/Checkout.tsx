@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { CreditCard, Lock } from 'lucide-react';
 import { useForm } from 'react-hook-form';
@@ -29,6 +29,7 @@ import { useCurrency } from '@/contexts/CurrencyContext';
 import { convertPrice, formatPrice } from '@/data/products';
 import { checkoutSchema, type CheckoutFormData, sanitizeInput } from '@/lib/validations/checkout';
 import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 
 const Checkout: React.FC = () => {
   const { items, subtotal, clearCart } = useCart();
@@ -61,28 +62,90 @@ const Checkout: React.FC = () => {
   const tax = currentSubtotal * 0.08; // 8% tax placeholder
   const total = currentSubtotal + shipping + tax;
 
-  const onSubmit = async (data: CheckoutFormData) => {
-    // Sanitize all string inputs before processing
-    const sanitizedData = {
-      ...data,
-      email: sanitizeInput(data.email),
-      firstName: sanitizeInput(data.firstName),
-      lastName: sanitizeInput(data.lastName),
-      address: sanitizeInput(data.address),
-      apartment: data.apartment ? sanitizeInput(data.apartment) : '',
-      city: sanitizeInput(data.city),
-      zip: sanitizeInput(data.zip),
-      phone: sanitizeInput(data.phone),
-    };
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Here you would typically send the order to your backend
-    // For now, we'll just show a success message
-    toast.success('Order placed successfully!', {
-      description: `Thank you for your order, ${sanitizedData.firstName}!`,
-    });
-    
-    clearCart();
-    navigate('/');
+  const onSubmit = async (data: CheckoutFormData) => {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      // Sanitize all string inputs before processing
+      const sanitizedData = {
+        ...data,
+        email: sanitizeInput(data.email),
+        firstName: sanitizeInput(data.firstName),
+        lastName: sanitizeInput(data.lastName),
+        address: sanitizeInput(data.address),
+        apartment: data.apartment ? sanitizeInput(data.apartment) : '',
+        city: sanitizeInput(data.city),
+        zip: sanitizeInput(data.zip),
+        phone: sanitizeInput(data.phone),
+      };
+
+      // Prepare order data for the secure edge function
+      const orderPayload = {
+        email: sanitizedData.email,
+        shippingAddress: {
+          firstName: sanitizedData.firstName,
+          lastName: sanitizedData.lastName,
+          address: sanitizedData.address,
+          apartment: sanitizedData.apartment,
+          city: sanitizedData.city,
+          state: data.state,
+          zip: sanitizedData.zip,
+          country: data.country,
+          phone: sanitizedData.phone,
+        },
+        items: items.map(item => ({
+          id: item.product.id,
+          name: item.product.name,
+          price: item.product.priceUSD,
+          quantity: item.quantity,
+          image: item.product.images[0],
+        })),
+        subtotal: currentSubtotal,
+        shipping,
+        tax,
+        total,
+        paymentMethod: data.paymentMethod,
+        shippingMethod: data.shippingMethod,
+      };
+
+      // Call the secure create-order edge function
+      const { data: result, error } = await supabase.functions.invoke('create-order', {
+        body: orderPayload,
+      });
+
+      if (error) {
+        console.error('Order creation error:', error);
+        toast.error('Failed to create order', {
+          description: 'Please try again later.',
+        });
+        return;
+      }
+
+      if (!result?.success) {
+        toast.error('Order failed', {
+          description: result?.error || 'Please check your information and try again.',
+        });
+        return;
+      }
+
+      // Order created successfully
+      toast.success('Order placed successfully!', {
+        description: `Thank you for your order, ${sanitizedData.firstName}! Order #${result.orderNumber}`,
+      });
+      
+      clearCart();
+      navigate('/');
+    } catch (err) {
+      console.error('Checkout error:', err);
+      toast.error('Something went wrong', {
+        description: 'Please try again later.',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (items.length === 0) {
@@ -484,10 +547,10 @@ const Checkout: React.FC = () => {
                     type="submit" 
                     className="w-full mt-6 btn-premium text-primary-foreground" 
                     size="lg"
-                    disabled={form.formState.isSubmitting}
+                    disabled={isSubmitting || form.formState.isSubmitting}
                   >
                     <Lock className="mr-2 h-4 w-4" />
-                    {form.formState.isSubmitting ? 'Processing...' : 'Complete Order'}
+                    {isSubmitting ? 'Processing...' : 'Complete Order'}
                   </Button>
 
                   <p className="text-xs text-center text-muted-foreground mt-4">
