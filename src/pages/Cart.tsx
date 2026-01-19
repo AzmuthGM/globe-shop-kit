@@ -28,12 +28,14 @@ const Cart: React.FC = () => {
   const freeShippingProgress = Math.min((currentSubtotal / shippingThreshold) * 100, 100);
   const remainingForFreeShipping = Math.max(shippingThreshold - currentSubtotal, 0);
 
-  // Calculate discount amount based on applied coupon
-  const discountAmount = appliedCoupon?.discountAmount || 0;
+  // Calculate discount amount based on applied coupon - convert from USD to current currency
+  const discountAmountUSD = appliedCoupon?.discountAmount || 0;
+  const discountAmount = convertPrice(discountAmountUSD, currency);
   const totalAfterDiscount = Math.max(currentSubtotal - discountAmount, 0);
 
   const handleApplyCoupon = () => {
-    applyCoupon(currentSubtotal);
+    // Always send USD subtotal to edge function for validation
+    applyCoupon(subtotal);
   };
 
   if (items.length === 0) {
